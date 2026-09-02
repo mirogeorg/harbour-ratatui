@@ -35,6 +35,19 @@ italic, underline, strikethrough, reverse и blink.
 В него `↑/↓` сменят избрания ред, `Space` сменя отметка, `P` спира/пуска
 анимацията, а `Q` или `Esc` затварят приложението.
 
+## Готови бинарни файлове
+
+Готовите Windows демота са в [`dist/`](dist/):
+
+- `dist/showcase/showcase.exe` + `harbour_ratatui.dll` — интерактивното демо;
+- `dist/zig64/demo_zig64.exe` + `harbour_ratatui.dll`;
+- `dist/mingw64/demo_mingw64.exe` + `harbour_ratatui.dll`;
+- `dist/mingw32/demo_mingw32.exe` + `harbour_ratatui.dll`.
+
+Стартирайте `.exe` файла от собствената му папка, така че съответният DLL да е
+до него. Бинарните файлове са само за бърз старт; build скриптовете остават
+налични за повторна компилация от source.
+
 ## Как е свързано
 
 ```text
