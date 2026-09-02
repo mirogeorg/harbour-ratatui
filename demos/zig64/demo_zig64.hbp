@@ -1,0 +1,5 @@
+demo_zig64.prg
+../../harbour/ratatui_builder.prg
+../../harbour/hb_ratatui.c
+-w3
+-es2

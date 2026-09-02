@@ -1,0 +1,6 @@
+showcase.prg
+../../harbour/ratatui_builder.prg
+../../harbour/hb_ratatui.c
+hbct.hbc
+-w3
+-es2

@@ -1,0 +1,6 @@
+/target/
+/.cache/
+/demos/*/*.exe
+/demos/*/*.dll
+/demos/*/*.map
+/demos/*/*.pdb
