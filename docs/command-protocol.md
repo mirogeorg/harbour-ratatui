@@ -1,27 +1,27 @@
 # HRC1 Harbour → Ratatui command protocol
 
-`HRC1` е стабилният seam между Harbour приложението и Rust adapter-а.
-Приложението притежава UI composition, state и input handling. Rust валидира
-и изпълнява общи Ratatui widget команди.
+`HRC1` is the stable seam between the Harbour application and the Rust adapter.
+The application owns UI composition, state, and input handling. Rust validates
+and executes generic Ratatui widget commands.
 
-## Публичен Harbour interface
+## Public Harbour interface
 
-`harbour/ratatui_builder.prg` предоставя:
+`harbour/ratatui_builder.prg` provides:
 
-- `RTUI_FRAME_NEW()` и `RTUI_FRAME_RENDER()`;
-- `RTUI_RGB()` и `RTUI_RECT()`;
+- `RTUI_FRAME_NEW()` and `RTUI_FRAME_RENDER()`;
+- `RTUI_RGB()` and `RTUI_RECT()`;
 - `RTUI_FRAME_CLEAR()`, `RTUI_FRAME_BLOCK()`, `RTUI_FRAME_PARAGRAPH()`;
 - `RTUI_FRAME_TABS()`, `RTUI_FRAME_LIST()`, `RTUI_FRAME_TABLE()`;
 - `RTUI_FRAME_GAUGE()`, `RTUI_FRAME_SPARKLINE()`;
-- `RTUI_FRAME_BARCHART()` и `RTUI_FRAME_CHART()`.
+- `RTUI_FRAME_BARCHART()` and `RTUI_FRAME_CHART()`.
 
-Само `RTUI_RENDER_COMMANDS(cBinary, lAnsi)` и `RTUI_PRESENT()` пресичат C ABI.
-Промени в layout, менюта, tree state, таблици, RGB стилове и данни изискват
-промяна само в Harbour кода.
+Only `RTUI_RENDER_COMMANDS(cBinary, lAnsi)` and `RTUI_PRESENT()` cross the C
+ABI. Changes to layouts, menus, tree state, tables, RGB styles, and data require
+changes only to the Harbour code.
 
 ## Binary envelope
 
-Всички числа са little-endian. Низовете са UTF-8 и се представят като
+All numbers are little-endian. Strings are UTF-8 and are represented as
 `u32 byte_length` + bytes.
 
 ```text
@@ -54,15 +54,16 @@ Version 1 opcodes:
 | 9 | BarChart |
 | 10 | Chart |
 
-Непозната задължителна команда е грешка. Непозната команда с optional flag
-се прескача чрез `payload_length`. Максималният buffer е 8 MiB, максимумът е
-4096 команди, а всеки widget rectangle трябва да е изцяло във frame-а.
+An unknown required command is an error. An unknown command with the optional
+flag is skipped using its `payload_length`. The maximum buffer size is 8 MiB,
+the maximum command count is 4096, and every widget rectangle must fit entirely
+within the frame.
 
-## Text modifiers от Harbour
+## Text modifiers from Harbour
 
-Последният byte от payload-а на `RTUI_FRAME_PARAGRAPH()` е компактна маска за
-Ratatui `Modifier`. Старият параметър `lBold` остава съвместим: ако
-`nModifiers` не е подаден, `.T.` означава `RTUI_MOD_BOLD`.
+The final byte in the `RTUI_FRAME_PARAGRAPH()` payload is a compact mask for
+Ratatui's `Modifier`. The old `lBold` parameter remains compatible: when
+`nModifiers` is not provided, `.T.` means `RTUI_MOD_BOLD`.
 
 ```harbour
 #include "ratatui.ch"
@@ -72,7 +73,7 @@ RTUI_FRAME_PARAGRAPH( aFrame, aRect, "", "Bold italic", ;
    RTUI_MOD_BOLD + RTUI_MOD_ITALIC )
 ```
 
-Маските са:
+The masks are:
 
 | Constant | Value | ANSI SGR |
 |---|---:|---:|
@@ -85,23 +86,24 @@ RTUI_FRAME_PARAGRAPH( aFrame, aRect, "", "Bold italic", ;
 | `RTUI_MOD_CROSSED` | 64 | 9 |
 | `RTUI_MOD_RAPID_BLINK` | 128 | 6 |
 
-Комбинират се със събиране на константите. Blink се поддържа от ANSI/VT, но
-конкретният терминал може да го изключва или да не го визуализира.
+Combine masks by adding the constants. ANSI/VT supports blinking, but a
+particular terminal may disable it or choose not to display it.
 
 ## Performance
 
-Локалният Windows x64 benchmark от 2026-09-02 изпълнява 2000 кадъра във всяка
-серия, без input wait и console output:
+The local Windows x64 benchmark from 2026-09-02 runs 2,000 frames in each
+series, without input waits or console output:
 
 ```text
 Command buffer: 0.894–0.942 ms/frame
 Legacy hardcoded Rust showcase: 0.938–0.942 ms/frame
 ```
 
-Резултатът не показва измеримо забавяне за showcase натоварването. Benchmark
-режимът се стартира с `HB_RATATUI_BENCHMARK=1`; броят кадри се задава чрез
+The result shows no measurable slowdown for the showcase workload. Start
+benchmark mode with `HB_RATATUI_BENCHMARK=1`; set the number of frames through
 `HB_RATATUI_BENCHMARK_ITERATIONS`.
 
-След добавяне само в Harbour на 74-команден TrueColor gradient и допълнителен
-10-редов панел резултатът е `1.208–1.257 ms/frame`. Допълнителната визуализация
-струва около `0.3 ms/frame` и остава приблизително 1.5% от 80 ms showcase tick.
+After adding a 74-command TrueColor gradient and an additional 10-row panel
+only in Harbour, the result is `1.208–1.257 ms/frame`. The extra visualization
+costs about `0.3 ms/frame` and remains approximately 1.5% of the 80 ms showcase
+tick.

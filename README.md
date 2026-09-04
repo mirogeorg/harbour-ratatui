@@ -1,29 +1,29 @@
-# Harbour ↔ Ratatui за Windows
+# Harbour ↔ Ratatui for Windows
 
-Работещ минимален binding между Harbour и
-[Ratatui 0.30.2](https://crates.io/crates/ratatui/0.30.2), проверен с:
+A working minimal binding between Harbour and
+[Ratatui 0.30.2](https://crates.io/crates/ratatui/0.30.2), tested with:
 
 - Harbour + Zig 64 (`-comp=zig -cpu=x86_64`);
 - Harbour + MinGW-w64 64 (`-comp=mingw64 -cpu=x86_64`);
 - Harbour + MinGW 32 (`-comp=mingw -cpu=x86`).
 
-Трите демота показват един и същ Ratatui dashboard с layout, `Block`,
-`Paragraph`, `Gauge`, цветове и Unicode рамки.
+The three demos show the same Ratatui dashboard with a layout, `Block`,
+`Paragraph`, `Gauge`, colors, and Unicode borders.
 
-Има и интерактивно showcase демо с RGB TrueColor, падащи менюта,
-йерархично дърво с `☑`/`☐`, stateful `List` и `Table`, анимирани `Gauge`,
-`Braille Chart`, `Sparkline`, `BarChart` и многоезичен Unicode текст.
-Долният `Rich features` панел се генерира в Harbour и показва плавен 24-bit
-RGB спектър, color capabilities и реални текстови модификатори: bold, dim,
-italic, underline, strikethrough, reverse и blink.
-`RTUI_PRESENT()` подава frame-а към същия Windows console handle чрез
-`WriteConsoleW` и включен VT режим, така че ANSI командите се интерпретират,
-вместо да се отпечатват като текст:
+There is also an interactive showcase demo with RGB TrueColor, drop-down menus,
+a hierarchical tree with `☑`/`☐`, stateful `List` and `Table` widgets, animated
+`Gauge`, `Braille Chart`, `Sparkline`, `BarChart`, and multilingual Unicode text.
+The bottom `Rich features` panel is generated in Harbour and displays a smooth
+24-bit RGB spectrum, color capabilities, and actual text modifiers: bold, dim,
+italic, underline, strikethrough, reverse, and blink.
+`RTUI_PRESENT()` sends the frame to the same Windows console handle through
+`WriteConsoleW` with VT mode enabled, so ANSI commands are interpreted instead
+of being printed as text.
 
-В showcase-а `F6` превключва фокуса между дървото и таблицата. `↑`/`↓`
-местят реда само в активния панел; `Space` сменя отметка само в дървото.
-`+` разгъва, а `-` сгъва избраните `Toolchains` или `Widgets`.
-`←`/`→` отварят и сменят главното меню.
+In the showcase, `F6` switches focus between the tree and the table. `↑`/`↓`
+move the row only in the active panel; `Space` toggles a checkbox only in the
+tree. `+` expands and `-` collapses the selected `Toolchains` or `Widgets`
+group. `←`/`→` open and switch the main menu.
 
 ```powershell
 .\demos\showcase\build.ps1 `
@@ -32,23 +32,23 @@ italic, underline, strikethrough, reverse и blink.
   -Run
 ```
 
-В него `↑/↓` сменят избрания ред, `Space` сменя отметка, `P` спира/пуска
-анимацията, а `Q` или `Esc` затварят приложението.
+Within the demo, `↑`/`↓` change the selected row, `Space` toggles a checkbox,
+`P` pauses/resumes the animation, and `Q` or `Esc` closes the application.
 
-## Готови бинарни файлове
+## Ready-to-run binaries
 
-Готовите Windows демота са в [`dist/`](dist/):
+The ready-to-run Windows demos are in [`dist/`](dist/):
 
-- `dist/showcase/showcase.exe` + `harbour_ratatui.dll` — интерактивното демо;
+- `dist/showcase/showcase.exe` + `harbour_ratatui.dll` — interactive demo;
 - `dist/zig64/demo_zig64.exe` + `harbour_ratatui.dll`;
 - `dist/mingw64/demo_mingw64.exe` + `harbour_ratatui.dll`;
 - `dist/mingw32/demo_mingw32.exe` + `harbour_ratatui.dll`.
 
-Стартирайте `.exe` файла от собствената му папка, така че съответният DLL да е
-до него. Бинарните файлове са само за бърз старт; build скриптовете остават
-налични за повторна компилация от source.
+Run each `.exe` from its own directory so that the matching DLL is next to it.
+The binaries are provided only for a quick start; the build scripts remain
+available for rebuilding from source.
 
-## Как е свързано
+## How it is connected
 
 ```text
 Harbour .prg
@@ -63,44 +63,44 @@ harbour_ratatui.dll        Rust cdylib
 Ratatui 0.30.2             off-screen Buffer → UTF-8/ANSI
 ```
 
-За нов код се използва общият `HRC1` command-buffer interface. UI layout-ът,
-данните, RGB стиловете и widget state-ът се описват в Harbour чрез
-[`harbour/ratatui_builder.prg`](harbour/ratatui_builder.prg). Rust adapter-ът
-само валидира и изпълнява командите. `RTUI_SHOWCASE*` функциите са оставени
-само за обратна съвместимост и не са нужни за нови екрани.
+New code uses the generic `HRC1` command-buffer interface. The UI layout, data,
+RGB styles, and widget state are described in Harbour through
+[`harbour/ratatui_builder.prg`](harbour/ratatui_builder.prg). The Rust adapter
+only validates and executes the commands. The `RTUI_SHOWCASE*` functions remain
+only for backward compatibility and are not needed for new screens.
 
-DLL се зарежда динамично. Затова един x64 DLL работи както със Zig64, така и
-с MinGW64, без значение от формата на техните import libraries. MinGW32
-зарежда отделен i686 DLL. Паметта не се освобождава през чужд runtime:
-Harbour подава caller-owned buffer, а Rust само го запълва.
+The DLL is loaded dynamically. Therefore, one x64 DLL works with both Zig64 and
+MinGW64, regardless of the format of their import libraries. MinGW32 loads a
+separate i686 DLL. Memory is not freed across a foreign runtime boundary:
+Harbour supplies a caller-owned buffer, and Rust only fills it.
 
-## Изисквания
+## Requirements
 
-1. Windows 10 или по-нов за ANSI цветовете.
-2. Актуален stable Rust (`rustup`, `cargo`, `rustc`).
-3. MSVC Build Tools, нужни на Rust linker-а за `*-pc-windows-msvc` DLL.
-4. Harbour пакет за съответната архитектура.
-5. Zig или MinGW C compiler, съвпадащ с Harbour пакета.
+1. Windows 10 or later for ANSI colors.
+2. A current stable Rust toolchain (`rustup`, `cargo`, `rustc`).
+3. MSVC Build Tools, required by the Rust linker for a `*-pc-windows-msvc` DLL.
+4. A Harbour package for the target architecture.
+5. A Zig or MinGW C compiler matching the Harbour package.
 
-MinGW32 и MinGW64 Harbour пакетите могат да се вземат от
+The MinGW32 and MinGW64 Harbour packages are available from
 [FiveTechSoft Harbour Builder](https://fivetechsoft.github.io/Harbour_builder/).
-Разархивирайте ги в различни директории, например:
+Extract them into separate directories, for example:
 
 ```text
 C:\toolchains\harbour-mingw64
 C:\toolchains\harbour-mingw32
 ```
 
-Не смесвайте 32- и 64-битовите `bin`, `include` и `lib` директории.
+Do not mix the 32-bit and 64-bit `bin`, `include`, and `lib` directories.
 
-Zig64 не е отделен download в тази страница. За него е нужен Harbour,
-компилиран с compiler id `zig`, и 64-битов Zig в `PATH` или подаден с
+Zig64 is not a separate download on that page. It requires Harbour built with
+compiler ID `zig` and a 64-bit Zig executable either in `PATH` or supplied with
 `-CompilerBin`.
 
-## Компилиране и стартиране
+## Building and running
 
-Всички команди се изпълняват от корена на repository-то в PowerShell.
-`-CompilerBin` може да се пропусне, ако `zig.exe`/`gcc.exe` вече е в `PATH`.
+Run all commands from the repository root in PowerShell. You may omit
+`-CompilerBin` if `zig.exe`/`gcc.exe` is already in `PATH`.
 
 ### Zig64
 
@@ -111,7 +111,7 @@ Zig64 не е отделен download в тази страница. За нег�
   -Run
 ```
 
-Получавате:
+This produces:
 
 ```text
 demos\zig64\demo_zig64.exe
@@ -127,7 +127,7 @@ demos\zig64\harbour_ratatui.dll
   -Run
 ```
 
-Получавате:
+This produces:
 
 ```text
 demos\mingw64\demo_mingw64.exe
@@ -136,13 +136,13 @@ demos\mingw64\harbour_ratatui.dll
 
 ### MinGW32
 
-Еднократно добавете 32-битовата Rust standard library:
+Add the 32-bit Rust standard library once:
 
 ```powershell
 rustup target add i686-pc-windows-msvc
 ```
 
-После:
+Then run:
 
 ```powershell
 .\demos\mingw32\build.ps1 `
@@ -151,29 +151,29 @@ rustup target add i686-pc-windows-msvc
   -Run
 ```
 
-Получавате:
+This produces:
 
 ```text
 demos\mingw32\demo_mingw32.exe
 demos\mingw32\harbour_ratatui.dll
 ```
 
-При повторно Harbour компилиране може да пропуснете Cargo build-а:
+When recompiling only the Harbour side, you can skip the Cargo build:
 
 ```powershell
 .\demos\zig64\build.ps1 -HarbourRoot C:\toolchains\harbour-zig64 -SkipRust
 ```
 
-## Използване в собствен Harbour проект
+## Using it in your own Harbour project
 
-Добавете C bridge файла в `.hbp`:
+Add the C bridge file to your `.hbp`:
 
 ```text
 myapp.prg
 path/to/harbour_ratatui/harbour/hb_ratatui.c
 ```
 
-Копирайте правилния `harbour_ratatui.dll` до `myapp.exe` и извикайте:
+Copy the appropriate `harbour_ratatui.dll` next to `myapp.exe` and call:
 
 ```harbour
 PROCEDURE Main()
@@ -196,47 +196,48 @@ PROCEDURE Main()
 RETURN
 ```
 
-Публичният Harbour API е:
+The public Harbour API is:
 
-- `RTUI_AVAILABLE()` — зарежда DLL и проверява ABI;
-- `RTUI_ABI_VERSION()` — връща текущата ABI версия (`1`);
-- `RTUI_RENDER(cTitle, cBody, nWidth, nHeight, lAnsi)` — връща рендериран
-  UTF-8 string или `NIL`;
-- `RTUI_RENDER_COMMANDS(cBinary, lAnsi)` — изпълнява общия `HRC1` frame,
-  създаден от Harbour builder-а;
-- `RTUI_SHOWCASE(nTick, nSelected, nWidth, nHeight, lAnsi)` — рендерира
-  базовия dashboard;
+- `RTUI_AVAILABLE()` — loads the DLL and checks the ABI;
+- `RTUI_ABI_VERSION()` — returns the current ABI version (`1`);
+- `RTUI_RENDER(cTitle, cBody, nWidth, nHeight, lAnsi)` — returns a rendered
+  UTF-8 string or `NIL`;
+- `RTUI_RENDER_COMMANDS(cBinary, lAnsi)` — executes a generic `HRC1` frame
+  created by the Harbour builder;
+- `RTUI_SHOWCASE(nTick, nSelected, nWidth, nHeight, lAnsi)` — renders the basic
+  dashboard;
 - `RTUI_SHOWCASE_EX(nTick, nSelected, nMenu, nMenuItem, nCheckedMask,`
-  `lMenuOpen, nWidth, nHeight, lAnsi)` — рендерира интерактивния dashboard;
-  Harbour управлява менюто, избрания ред и отметките;
+  `lMenuOpen, nWidth, nHeight, lAnsi)` — renders the interactive dashboard;
+  Harbour manages the menu, selected row, and checkboxes;
 - `RTUI_SHOWCASE_UI(nTick, nTreeSelected, nTableSelected, nFocus, nMenu,`
-  `nMenuItem, nCheckedMask, lMenuOpen, nWidth, nHeight, lAnsi)` — добавя
-  независим фокус и селекция за дървото и таблицата;
+  `nMenuItem, nCheckedMask, lMenuOpen, nWidth, nHeight, lAnsi)` — adds
+  independent focus and selection for the tree and table;
 - `RTUI_SHOWCASE_TREE(nTick, nTreeSelected, nTableSelected, nFocus, nMenu,`
   `nMenuItem, nCheckedMask, nExpandedMask, lMenuOpen, nWidth, nHeight, lAnsi)`
-  — добавя разгъване и сгъване на йерархичните групи;
-- `RTUI_PRESENT(cUtf8, lAnsi)` — извежда UTF-8 frame-а чрез native
-  `MultiByteToWideChar` + `WriteConsoleW`; при `.T.` включва Windows VT за
-  24-bit RGB, а при `.F.` отказва низ, съдържащ ESC byte;
-- `RTUI_LAST_ERROR()` — връща последната loader/Rust грешка;
-- `RTUI_ENABLE_VT()` — включва ANSI обработка за Windows console output.
+  — adds expansion and collapsing of hierarchical groups;
+- `RTUI_PRESENT(cUtf8, lAnsi)` — outputs the UTF-8 frame through native
+  `MultiByteToWideChar` + `WriteConsoleW`; `.T.` enables Windows VT for 24-bit
+  RGB, while `.F.` rejects a string containing an ESC byte;
+- `RTUI_LAST_ERROR()` — returns the most recent loader/Rust error;
+- `RTUI_ENABLE_VT()` — enables ANSI processing for Windows console output.
 
-Ако DLL не е до executable файла, задайте абсолютния му път преди старт:
+If the DLL is not next to the executable, set its absolute path before launch:
 
 ```powershell
 $env:HB_RATATUI_DLL = 'D:\myapp\bin\harbour_ratatui.dll'
 .\myapp.exe
 ```
 
-`RTUI_RENDER()` приема ширина 24–500 и височина 9–200. Всички низове през
-ABI са UTF-8 с изрична byte дължина; не са NUL-terminated параметри.
+`RTUI_RENDER()` accepts widths from 24 to 500 and heights from 9 to 200. All
+strings crossing the ABI are UTF-8 with an explicit byte length; they are not
+NUL-terminated parameters.
 
-### Текстови модификатори
+### Text modifiers
 
-`RTUI_FRAME_PARAGRAPH()` приема незадължителен последен параметър
-`nModifiers`. Маските `RTUI_MOD_BOLD`, `RTUI_MOD_DIM`, `RTUI_MOD_ITALIC`,
-`RTUI_MOD_UNDERLINE`, `RTUI_MOD_BLINK`, `RTUI_MOD_REVERSE`,
-`RTUI_MOD_CROSSED` и `RTUI_MOD_RAPID_BLINK` се комбинират със събиране:
+`RTUI_FRAME_PARAGRAPH()` accepts an optional final `nModifiers` parameter. The
+`RTUI_MOD_BOLD`, `RTUI_MOD_DIM`, `RTUI_MOD_ITALIC`, `RTUI_MOD_UNDERLINE`,
+`RTUI_MOD_BLINK`, `RTUI_MOD_REVERSE`, `RTUI_MOD_CROSSED`, and
+`RTUI_MOD_RAPID_BLINK` masks are combined by addition:
 
 ```harbour
 #include "ratatui.ch"
@@ -247,12 +248,12 @@ RTUI_FRAME_PARAGRAPH( aFrame, RTUI_RECT( 1, 1, 40, 3 ), "", ;
    RTUI_MOD_BOLD + RTUI_MOD_ITALIC + RTUI_MOD_UNDERLINE )
 ```
 
-Старият `lBold` параметър остава валиден и се използва, когато
-`nModifiers` не е подаден.
+The old `lBold` parameter remains valid and is used when `nModifiers` is not
+provided.
 
-## Директни build команди
+## Direct build commands
 
-Скриптовете изпълняват еквивалента на:
+The scripts execute the equivalent of:
 
 ```powershell
 cargo build --release
@@ -260,11 +261,11 @@ cd demos\zig64
 C:\toolchains\harbour-zig64\bin\hbmk2.exe demo_zig64.hbp -comp=zig -cpu=x86_64 -odemo_zig64
 ```
 
-За MinGW64 сменете профила с `-comp=mingw64 -cpu=x86_64`, а за MinGW32 —
-с `-comp=mingw -cpu=x86` и използвайте i686 DLL от
+For MinGW64, change the profile to `-comp=mingw64 -cpu=x86_64`. For MinGW32,
+use `-comp=mingw -cpu=x86` and the i686 DLL from
 `target\i686-pc-windows-msvc\release`.
 
-## Проверки
+## Checks
 
 ```powershell
 cargo fmt --check
@@ -272,6 +273,6 @@ cargo test
 cargo build --release
 ```
 
-Rust export-ите са описани в `include/harbour_ratatui.h`. ABI е защитено от
-version check, всички Rust panic-и се прихващат на FFI границата и към
-Harbour не се подават Rust pointers или Rust-owned allocations.
+The Rust exports are described in `include/harbour_ratatui.h`. The ABI is
+protected by a version check, every Rust panic is caught at the FFI boundary,
+and no Rust pointers or Rust-owned allocations are passed to Harbour.

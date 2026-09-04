@@ -1,160 +1,160 @@
-# Техническа осъществимост: Harbour bindings към Ratatui
+# Technical feasibility: Harbour bindings for Ratatui
 
-Дата на проверката: 2026-09-01  
-Обхват: архитектура и публичен API на Ratatui, backend модел, Rust FFI ограничения, лиценз, платформи и възможни стратегии за Harbour интеграция.  
-Метод: официалните GitHub repository, Ratatui website, docs.rs, Rust Reference/Nomicon и Harbour repository бяха намерени и прочетени чрез Bright Data `search_engine` и `scrape_as_markdown`. Работната директория беше празна и нямаше установена конвенция за research notes, затова е използван `docs/research/`.
+Review date: 2026-09-01<br>
+Scope: Ratatui architecture and public API, backend model, Rust FFI constraints, licensing, platforms, and possible Harbour integration strategies.<br>
+Method: the official GitHub repositories, Ratatui website, docs.rs, Rust Reference/Nomicon, and Harbour repository were found and reviewed using Bright Data `search_engine` and `scrape_as_markdown`. The working directory was empty and had no established convention for research notes, so `docs/research/` was used.
 
-## Кратък отговор
+## Short answer
 
-**Да, bindings са технически осъществими, но не като директни 1:1 bindings към Rust API.** Практичният дизайн е Rust adapter crate, който зависи от Ratatui и експортира малък, версиониран C ABI (`staticlib` и/или `cdylib`). Harbour го извиква чрез тънък C слой, написан с Harbour Extend API.
+**Yes, bindings are technically feasible, but not as direct 1:1 bindings to the Rust API.** The practical design is a Rust adapter crate that depends on Ratatui and exports a small, versioned C ABI (`staticlib` and/or `cdylib`). Harbour calls it through a thin C layer written with the Harbour Extend API.
 
-Не е нужно непременно да започваме от нулата: community проектът [`holo-q/ratatui-ffi`](https://github.com/holo-q/ratatui-ffi) вече покрива голяма част от необходимия C ABI. Той е добър кандидат за **audit + fork + Harbour adapter**, но не трябва да се използва unmodified: текущият му `master` държи две несъвместими Crossterm версии, а допълнителните FFI safety checks са изключени по подразбиране.
+There is no need to start entirely from scratch: the community project [`holo-q/ratatui-ffi`](https://github.com/holo-q/ratatui-ffi) already covers much of the required C ABI. It is a good candidate for an **audit + fork + Harbour adapter**, but should not be used unmodified: its current `master` contains two incompatible Crossterm versions, and the additional FFI safety checks are disabled by default.
 
-Най-разумният първи продукт е **curated binding** за жизнения цикъл на терминала, layout, style, text и най-използваните widgets. Пълно огледало на целия Ratatui API би било скъпо за разработка и поддръжка, защото публичният Rust API е изграден около traits, generics, closures, lifetimes, builder-и и ownership, които нямат директен стабилен C ABI.
+The most sensible first product is a **curated binding** for the terminal lifecycle, layout, style, text, and the most commonly used widgets. A complete mirror of the entire Ratatui API would be expensive to develop and maintain because the public Rust API is built around traits, generics, closures, lifetimes, builders, and ownership, which have no direct stable C ABI.
 
-Оценка на осъществимостта:
+Feasibility assessment:
 
-| Вариант | Осъществимост | Сложност | Препоръка |
+| Option | Feasibility | Complexity | Recommendation |
 |---|---:|---:|---|
-| Rust управлява терминала чрез Crossterm; Harbour подава view/commands | висока | средна | най-бърз MVP |
-| Ratatui рендерира към Harbour GT чрез custom backend/callbacks | висока | средно-висока | най-добра native интеграция |
-| Ratatui рендерира off-screen buffer; Harbour записва cell-овете | висока | средна | добър безопасен междинен вариант |
-| Fork/адаптация на community `ratatui-ffi` | висока | средна | препоръчана начална база след audit |
-| Автоматично 1:1 обвиване на целия Rust API | ниска | много висока | да не се прави |
-| Отделен Rust процес с IPC | висока | висока оперативна сложност | fallback при проблеми с toolchain/ABI |
+| Rust manages the terminal through Crossterm; Harbour supplies views/commands | high | medium | fastest MVP |
+| Ratatui renders to Harbour GT through a custom backend/callbacks | high | medium-high | best native integration |
+| Ratatui renders to an off-screen buffer; Harbour writes the cells | high | medium | good, safe intermediate option |
+| Fork/adapt the community `ratatui-ffi` | high | medium | recommended starting point after an audit |
+| Automatically wrap the entire Rust API 1:1 | low | very high | do not pursue |
+| Separate Rust process with IPC | high | high operational complexity | fallback for toolchain/ABI problems |
 
-## Какво представлява Ratatui 0.30.2
+## What Ratatui 0.30.2 is
 
-Към датата на проверката публикуваната документация е за `ratatui 0.30.2`. От 0.30 проектът е разделен на workspace от специализирани crates:
+At the time of the review, the published documentation covered `ratatui 0.30.2`. Since 0.30, the project has been organized as a workspace of specialized crates:
 
-- `ratatui-core`: `Widget`/`StatefulWidget`, text, buffer, layout, style и symbols;
-- `ratatui-widgets`: стандартните widgets;
-- отделни backend crates: `ratatui-crossterm`, `ratatui-termion`, `ratatui-termina`, `ratatui-termwiz`;
-- `ratatui`: удобният facade crate, който re-export-ва останалите API-та.
+- `ratatui-core`: `Widget`/`StatefulWidget`, text, buffer, layout, style, and symbols;
+- `ratatui-widgets`: the standard widgets;
+- separate backend crates: `ratatui-crossterm`, `ratatui-termion`, `ratatui-termina`, and `ratatui-termwiz`;
+- `ratatui`: the convenient facade crate that re-exports the other APIs.
 
-Това разделяне е полезно за bindings: adapter-ът може да зависи само от `ratatui-core` + `ratatui-widgets`, ако Harbour ще управлява terminal I/O, или от facade crate + Crossterm, ако Rust ще управлява целия терминал. Официалният архитектурен документ описва dependency graph-а и посочва `ratatui-core` като стабилната основа за widget библиотеки: [ARCHITECTURE.md](https://github.com/ratatui/ratatui/blob/main/ARCHITECTURE.md).
+This separation is useful for bindings: the adapter can depend only on `ratatui-core` + `ratatui-widgets` if Harbour manages terminal I/O, or on the facade crate + Crossterm if Rust manages the entire terminal. The official architecture document describes the dependency graph and identifies `ratatui-core` as the stable foundation for widget libraries: [ARCHITECTURE.md](https://github.com/ratatui/ratatui/blob/main/ARCHITECTURE.md).
 
-Main crate по подразбиране включва всички widgets, Crossterm, layout cache, macros и underline color. Crossterm е default backend; Termion dependency е условно изключена на Windows. Същият manifest документира experimental feature flags, които не трябва да влизат в първата версия на binding-а: [ratatui/Cargo.toml](https://github.com/ratatui/ratatui/blob/main/ratatui/Cargo.toml).
+By default, the main crate includes all widgets, Crossterm, the layout cache, macros, and underline color. Crossterm is the default backend; the Termion dependency is conditionally excluded on Windows. The same manifest documents experimental feature flags that should not be included in the first binding version: [ratatui/Cargo.toml](https://github.com/ratatui/ratatui/blob/main/ratatui/Cargo.toml).
 
-Workspace manifest-ът към датата на проверката задава Rust edition 2024 и MSRV 1.88.0. Това е build-time изискване за нашия Rust adapter, не runtime изискване към потребителя: [Cargo.toml](https://github.com/ratatui/ratatui/blob/main/Cargo.toml).
+At the time of the review, the workspace manifest specified Rust edition 2024 and MSRV 1.88.0. This is a build-time requirement for our Rust adapter, not a runtime requirement for users: [Cargo.toml](https://github.com/ratatui/ratatui/blob/main/Cargo.toml).
 
-## Rendering и публичен API
+## Rendering and public API
 
-Ratatui е immediate-mode UI библиотека. Типичният flow е:
+Ratatui is an immediate-mode UI library. The typical flow is:
 
-1. `Terminal::draw` приема Rust closure и създава `Frame`;
-2. приложението извиква `Frame::render_widget`/`render_stateful_widget`;
-3. widget-ите рисуват в междинен `Buffer` от `Cell` стойности;
-4. `Terminal` сравнява текущия и предишния buffer и изпраща само разликите към backend-а.
+1. `Terminal::draw` accepts a Rust closure and creates a `Frame`;
+2. the application calls `Frame::render_widget`/`render_stateful_widget`;
+3. widgets draw into an intermediate `Buffer` of `Cell` values;
+4. `Terminal` compares the current and previous buffers and sends only the differences to the backend.
 
-`Cell` съдържа символ и отделна style информация (foreground/background/modifiers); един визуален cell не трябва да се приема за един byte или дори за един Unicode scalar. Официалното описание на pipeline-а и double buffering е в [Rendering under the hood](https://ratatui.rs/concepts/rendering/under-the-hood/), а version-pinned API-тата са в docs.rs за [`Terminal`](https://docs.rs/ratatui/0.30.2/ratatui/struct.Terminal.html), [`Buffer`](https://docs.rs/ratatui/0.30.2/ratatui/buffer/struct.Buffer.html) и [`Cell`](https://docs.rs/ratatui/0.30.2/ratatui/buffer/struct.Cell.html).
+`Cell` contains a symbol and separate style information (foreground/background/modifiers); one visual cell must not be assumed to equal one byte or even one Unicode scalar. The official description of the pipeline and double buffering is in [Rendering under the hood](https://ratatui.rs/concepts/rendering/under-the-hood/), while version-pinned APIs are available on docs.rs for [`Terminal`](https://docs.rs/ratatui/0.30.2/ratatui/struct.Terminal.html), [`Buffer`](https://docs.rs/ratatui/0.30.2/ratatui/buffer/struct.Buffer.html), and [`Cell`](https://docs.rs/ratatui/0.30.2/ratatui/buffer/struct.Cell.html).
 
-Публичните API области, които са подходящи за curated Harbour binding, са:
+The public API areas suitable for a curated Harbour binding are:
 
 - geometry/layout: `Rect`, `Position`, `Size`, `Layout`, `Constraint`, `Direction`, `Flex`, `Margin`;
-- style: `Color`, `Modifier`, `Style`, `Stylize` концепциите;
-- text: `Span`, `Line`, `Text`, alignment и wrapping;
+- style: the `Color`, `Modifier`, `Style`, and `Stylize` concepts;
+- text: `Span`, `Line`, `Text`, alignment, and wrapping;
 - widgets: `Block`, `Paragraph`, `List`, `Table`, `Tabs`, `Gauge`, `BarChart`, `Chart`, `Canvas`, `Scrollbar`, `Sparkline`, `Calendar`;
-- state: `ListState`, `TableState`, `ScrollbarState` и други stateful widget стойности;
+- state: `ListState`, `TableState`, `ScrollbarState`, and other stateful widget values;
 - terminal: frame/draw, viewport, cursor, resize, clear;
-- testing: `TestBackend` и детерминирани buffer snapshots.
+- testing: `TestBackend` and deterministic buffer snapshots.
 
-Минималният `Widget` contract е по същество `render(self, area: Rect, buf: &mut Buffer)`, но параметрите и ownership моделът са Rust-specific: [Widget API](https://docs.rs/ratatui/0.30.2/ratatui/widgets/trait.Widget.html). Това е добра вътрешна seam точка за adapter-а, но не е подходящ ABI за директно излагане към Harbour.
+The minimal `Widget` contract is essentially `render(self, area: Rect, buf: &mut Buffer)`, but its parameters and ownership model are Rust-specific: [Widget API](https://docs.rs/ratatui/0.30.2/ratatui/widgets/trait.Widget.html). This is a good internal seam for the adapter, but not a suitable ABI to expose directly to Harbour.
 
 ## Backend abstraction
 
-`Backend` абстрахира draw, cursor, clear, size/window size, flush и (условно) scrolling regions. `draw` приема generic iterator от `(u16, u16, &Cell)`, trait-ът има associated `Error` type и документацията изрично отбелязва, че **не е dyn-compatible**: [Backend trait 0.1.2](https://docs.rs/ratatui-core/0.1.2/ratatui_core/backend/trait.Backend.html).
+`Backend` abstracts drawing, cursor operations, clearing, size/window size, flushing, and, conditionally, scrolling regions. `draw` accepts a generic iterator over `(u16, u16, &Cell)`; the trait has an associated `Error` type, and the documentation explicitly notes that it is **not dyn-compatible**: [Backend trait 0.1.2](https://docs.rs/ratatui-core/0.1.2/ratatui_core/backend/trait.Backend.html).
 
-Това има две последици:
+This has two consequences:
 
-1. Не можем просто да прехвърлим `Backend*` като универсален opaque trait object през C границата.
-2. Можем без проблем да компилираме конкретен `Terminal<HarbourBackend>` вътре в Rust adapter-а. `HarbourBackend` ще е Rust struct с C-compatible callback table или собствен output buffer; generic-ът ще бъде monomorphized при компилация.
+1. We cannot simply pass a `Backend*` as a universal opaque trait object across the C boundary.
+2. We can compile a concrete `Terminal<HarbourBackend>` inside the Rust adapter without difficulty. `HarbourBackend` would be a Rust struct with a C-compatible callback table or its own output buffer; the generic would be monomorphized at compile time.
 
-Официално поддържаните backend-и са Crossterm, Termion, Termwiz, Termina и `TestBackend`. Ratatui не поема целия application lifecycle: приложението обичайно използва съответната backend библиотека директно за keyboard/mouse/resize events, raw mode и alternate screen. Това трябва изрично да се покрие от wrapper API: [Ratatui Backends](https://ratatui.rs/concepts/backends/).
+The officially supported backends are Crossterm, Termion, Termwiz, Termina, and `TestBackend`. Ratatui does not own the entire application lifecycle: applications normally use the corresponding backend library directly for keyboard/mouse/resize events, raw mode, and the alternate screen. The wrapper API must cover these responsibilities explicitly: [Ratatui Backends](https://ratatui.rs/concepts/backends/).
 
-## Защо директни bindings не са подходящи
+## Why direct bindings are unsuitable
 
-Самият официален Ratatui core не доставя или гарантира C ABI. Има community FFI crate, разгледан по-долу, но директното export-ване на официалните Rust типове остава нестабилно или невъзможно поради:
+The official Ratatui core itself does not provide or guarantee a C ABI. A community FFI crate is discussed below, but directly exporting the official Rust types remains unstable or impossible because of:
 
-- generic типове и generic methods (`Terminal<B>`, `Backend::draw<I>`);
-- traits и associated types;
+- generic types and generic methods (`Terminal<B>`, `Backend::draw<I>`);
+- traits and associated types;
 - closures (`Terminal::draw`);
-- lifetimes и borrowed references (`&Cell`, `&mut Buffer`, text със заети данни);
-- `String`, `Vec`, builder типове и enums без изрично договорен C layout;
+- lifetimes and borrowed references (`&Cell`, `&mut Buffer`, text containing borrowed data);
+- `String`, `Vec`, builder types, and enums without an explicitly agreed C layout;
 - ownership-consuming builder methods;
-- `Backend` не е dyn-compatible;
-- публичният API все още е pre-1.0 и проектът поддържа отделен списък с breaking changes: [BREAKING-CHANGES.md](https://github.com/ratatui/ratatui/blob/main/BREAKING-CHANGES.md).
+- `Backend` not being dyn-compatible;
+- the public API still being pre-1.0, with the project maintaining a separate list of breaking changes: [BREAKING-CHANGES.md](https://github.com/ratatui/ratatui/blob/main/BREAKING-CHANGES.md).
 
-Rust гарантира C-compatible layout само за внимателно дефинирани `#[repr(C)]` типове; нормалното Rust representation не е C договор. Официалните FFI насоки препоръчват C ABI functions, `#[repr(C)]`, raw/opaque pointers, ясна ownership дисциплина и предотвратяване на panic unwinding през FFI: [Rust Nomicon: FFI](https://doc.rust-lang.org/nomicon/ffi.html), [Rust Reference: type layout](https://doc.rust-lang.org/reference/type-layout.html), [Rust Reference: ABI](https://doc.rust-lang.org/reference/abi.html).
+Rust guarantees C-compatible layout only for carefully defined `#[repr(C)]` types; normal Rust representation is not a C contract. The official FFI guidance recommends C ABI functions, `#[repr(C)]`, raw/opaque pointers, explicit ownership discipline, and preventing panic unwinding across FFI: [Rust Nomicon: FFI](https://doc.rust-lang.org/nomicon/ffi.html), [Rust Reference: type layout](https://doc.rust-lang.org/reference/type-layout.html), [Rust Reference: ABI](https://doc.rust-lang.org/reference/abi.html).
 
-Следователно ABI-то трябва да съдържа само:
+Therefore, the ABI should contain only:
 
-- fixed-width числа (`uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`);
-- opaque handles към Rust-owned objects;
-- `#[repr(C)]` DTO structs с `struct_size`/`abi_version`;
-- `(const uint8_t*, size_t)` за UTF-8 вход, копиран от Rust преди връщане;
-- caller-provided buffers или симетрични `alloc/free` функции;
-- integer status codes + `last_error`, без Rust `Result`, `String` или panic през границата.
+- fixed-width integers (`uint8_t`, `uint16_t`, `uint32_t`, `uint64_t`);
+- opaque handles to Rust-owned objects;
+- `#[repr(C)]` DTO structs with `struct_size`/`abi_version`;
+- `(const uint8_t*, size_t)` for UTF-8 input, copied by Rust before returning;
+- caller-provided buffers or symmetric `alloc/free` functions;
+- integer status codes + `last_error`, with no Rust `Result`, `String`, or panic crossing the boundary.
 
-## Съществуващ community проект: `ratatui-ffi`
+## Existing community project: `ratatui-ffi`
 
-Официално поддържаният от Ratatui общността каталог `awesome-ratatui` има раздел Bindings и включва [`ratatui-ffi`](https://github.com/holo-q/ratatui-ffi) като „FFI bindings for ratatui“: [awesome-ratatui Bindings](https://github.com/ratatui/awesome-ratatui#-bindings). Това е community listing, не обещание за support или ABI stability от Ratatui core maintainers.
+The officially maintained Ratatui community catalog, `awesome-ratatui`, has a Bindings section and includes [`ratatui-ffi`](https://github.com/holo-q/ratatui-ffi) as “FFI bindings for ratatui”: [awesome-ratatui Bindings](https://github.com/ratatui/awesome-ratatui#-bindings). This is a community listing, not a promise of support or ABI stability from the Ratatui core maintainers.
 
-Repository README-то заявява native C ABI `cdylib` и вече предлага:
+The repository README describes a native C ABI `cdylib` and already offers:
 
-- Paragraph, List/Table със state, Tabs, Gauge/LineGauge, BarChart, Sparkline, Chart, Scrollbar, Canvas и други widgets;
-- layout split API, style/span/line DTO-та, RGB/indexed colors и modifiers;
-- terminal init/clear, batched frame render, raw/alternate screen, cursor, size, event polling;
-- headless snapshots и structured `FfiCellInfo` output;
-- batching/reserve API-та, panic guards за terminal operations и `cbindgen` header generation.
+- Paragraph, stateful List/Table, Tabs, Gauge/LineGauge, BarChart, Sparkline, Chart, Scrollbar, Canvas, and other widgets;
+- a layout split API, style/span/line DTOs, RGB/indexed colors, and modifiers;
+- terminal initialization/clear, batched frame rendering, raw/alternate screen, cursor, size, and event polling;
+- headless snapshots and structured `FfiCellInfo` output;
+- batching/reserve APIs, panic guards for terminal operations, and `cbindgen` header generation.
 
-Това е много близо до предложения в този документ MVP и значително намалява началната работа: [ratatui-ffi README](https://github.com/holo-q/ratatui-ffi/blob/master/README.md).
+This is very close to the MVP proposed in this document and significantly reduces the initial work: [ratatui-ffi README](https://github.com/holo-q/ratatui-ffi/blob/master/README.md).
 
-Има обаче три важни условия преди reuse:
+There are, however, three important conditions before reuse:
 
-1. **Dependency mismatch.** Публикуваният crate `0.2.6` зависи от `ratatui ^0.29` и `crossterm ^0.27`: [crates.io dependency metadata](https://crates.io/api/v1/crates/ratatui_ffi/0.2.6/dependencies). Текущият repository `master` е преминал към `ratatui = "0.30"`, но още декларира директно `crossterm = "0.27"`: [Cargo.toml](https://github.com/holo-q/ratatui-ffi/blob/master/Cargo.toml). Понеже Ratatui 0.30.2 използва Crossterm 0.29 по подразбиране, lockfile-ът съдържа едновременно 0.27.0 и 0.29.0: [Cargo.lock](https://github.com/holo-q/ratatui-ffi/blob/master/Cargo.lock).
-2. **Това е функционален, не само козметичен риск.** Официалните Ratatui backend docs предупреждават, че несъвместими Crossterm версии имат отделни event queues и отделно raw-mode състояние, което може да доведе до race conditions, lost events и неправилно restore-ване: [Crossterm Version Compatibility](https://ratatui.rs/concepts/backends/#crossterm-version-compatibility).
-3. **Safety policy.** README-то казва, че feature-ът `ffi_safety` е изключен по подразбиране и default build не компилира допълнителните checks. За Harbour integration той трябва да се включи в QA и най-вероятно в production, или всички entry points да минат отделен audit/fuzzing. Освен това част от string API-то приема NUL-terminated UTF-8; length-aware variants са по-безопасни за Harbour strings.
+1. **Dependency mismatch.** The published crate `0.2.6` depends on `ratatui ^0.29` and `crossterm ^0.27`: [crates.io dependency metadata](https://crates.io/api/v1/crates/ratatui_ffi/0.2.6/dependencies). The current repository `master` has moved to `ratatui = "0.30"`, but still declares a direct `crossterm = "0.27"` dependency: [Cargo.toml](https://github.com/holo-q/ratatui-ffi/blob/master/Cargo.toml). Because Ratatui 0.30.2 uses Crossterm 0.29 by default, the lockfile contains both 0.27.0 and 0.29.0: [Cargo.lock](https://github.com/holo-q/ratatui-ffi/blob/master/Cargo.lock).
+2. **This is a functional, not merely cosmetic, risk.** The official Ratatui backend documentation warns that incompatible Crossterm versions have separate event queues and separate raw-mode state, which may lead to race conditions, lost events, and incorrect restoration: [Crossterm Version Compatibility](https://ratatui.rs/concepts/backends/#crossterm-version-compatibility).
+3. **Safety policy.** The README says that the `ffi_safety` feature is disabled by default and that the default build does not compile the additional checks. For Harbour integration, it should be enabled in QA and most likely in production, or all entry points should undergo a separate audit/fuzzing effort. In addition, some of the string API accepts NUL-terminated UTF-8; length-aware variants are safer for Harbour strings.
 
-Препоръка за reuse:
+Reuse recommendation:
 
-- fork или pin към конкретен audited commit, не floating `master`;
-- обновяване на директната Crossterm dependency до 0.29 и CI check, че `cargo tree -p crossterm` показва само една версия;
-- `ratatui = "=0.30.2"` и отделно versioned C ABI;
-- default-on bounds/pointer/length validation за Harbour artifact-а;
-- запазване на batch/headless/widget implementation-а;
-- добавяне на Harbour-specific C/Extend API слой и length-aware UTF-8 functions;
-- отделяне или изключване на terminal/event ownership функциите, ако Harbour GT е собственик на терминала.
+- fork or pin a specific audited commit, not floating `master`;
+- update the direct Crossterm dependency to 0.29 and add a CI check that `cargo tree -p crossterm` shows only one version;
+- use `ratatui = "=0.30.2"` and a separately versioned C ABI;
+- enable bounds/pointer/length validation by default for the Harbour artifact;
+- preserve the batch/headless/widget implementation;
+- add a Harbour-specific C/Extend API layer and length-aware UTF-8 functions;
+- separate or disable terminal/event ownership functions if Harbour GT owns the terminal.
 
-Публикуваният `ratatui_ffi 0.2.6` е MIT OR Apache-2.0 и crates.io го описва като C ABI binding, но е от 2025-09 и все още сочи Ratatui 0.29; repository state и release artifact не трябва да се смесват без изричен version/commit choice: [crates.io metadata](https://crates.io/api/v1/crates/ratatui_ffi).
+The published `ratatui_ffi 0.2.6` is licensed MIT OR Apache-2.0 and is described on crates.io as a C ABI binding, but it dates from 2025-09 and still targets Ratatui 0.29. The repository state and release artifact must not be mixed without an explicit version/commit choice: [crates.io metadata](https://crates.io/api/v1/crates/ratatui_ffi).
 
-## Препоръчана архитектура
+## Recommended architecture
 
-### Слой 1: `ratatui-hb-ffi` (Rust)
+### Layer 1: `ratatui-hb-ffi` (Rust)
 
-Отделен crate — нов или audited fork на `ratatui-ffi` — който pin-ва точна Ratatui версия и се компилира като `staticlib`, `cdylib` или и двете. Rust Reference определя `staticlib` като формат, препоръчан за вграждане на Rust в съществуващо non-Rust приложение, а `cdylib` като dynamic system library за зареждане от друг език: [Rust Reference: linkage](https://doc.rust-lang.org/reference/linkage.html).
+A separate crate—either new or an audited fork of `ratatui-ffi`—pins an exact Ratatui version and compiles as a `staticlib`, `cdylib`, or both. The Rust Reference defines `staticlib` as the format recommended for embedding Rust in an existing non-Rust application, and `cdylib` as a dynamic system library for loading from another language: [Rust Reference: linkage](https://doc.rust-lang.org/reference/linkage.html).
 
-Adapter-ът:
+The adapter:
 
-- притежава всички Ratatui/Rust обекти;
-- експортира само C ABI functions;
-- преобразува C DTO-та към Ratatui builders за текущия frame;
-- прихваща unwind panic с `catch_unwind` и го превръща в status/error text;
-- гарантира terminal restore при normal close и при обработими грешки;
-- не допуска exception/panic да преминава ABI границата;
-- пази ABI версия отделно от Ratatui версията.
+- owns all Ratatui/Rust objects;
+- exports only C ABI functions;
+- converts C DTOs to Ratatui builders for the current frame;
+- catches unwinding panics with `catch_unwind` and converts them to status/error text;
+- guarantees terminal restoration on normal close and recoverable errors;
+- prevents exceptions/panics from crossing the ABI boundary;
+- versions the ABI independently from the Ratatui version.
 
-`cbindgen` може да генерира C header за нашите `extern "C"` DTO-та и functions, но не може да превърне самия generic Ratatui API в C ABI. Header generation е помощно средство, не binding стратегия.
+`cbindgen` can generate a C header for our `extern "C"` DTOs and functions, but it cannot turn the generic Ratatui API itself into a C ABI. Header generation is a supporting tool, not a binding strategy.
 
-### Слой 2: `hb_ratatui.c` (Harbour Extend API)
+### Layer 2: `hb_ratatui.c` (Harbour Extend API)
 
-Тънък C wrapper дефинира `HB_FUNC(...)` entry points, валидира Harbour аргументите, извиква C ABI и преобразува status/error резултатите към Harbour. Официалният Harbour `hbapi.h` е header-ът за Extend API, Array API и основните VM декларации: [Harbour hbapi.h](https://github.com/harbour/core/blob/master/include/hbapi.h).
+A thin C wrapper defines `HB_FUNC(...)` entry points, validates Harbour arguments, calls the C ABI, and converts status/error results for Harbour. The official Harbour `hbapi.h` is the header for the Extend API, Array API, and core VM declarations: [Harbour hbapi.h](https://github.com/harbour/core/blob/master/include/hbapi.h).
 
-`hbmk2` поддържа допълнителни library paths, библиотеки и static/shared linking, което е достатъчно за свързване на Rust artifact-а: [hbmk2 documentation](https://github.com/harbour/core/blob/master/utils/hbmk2/doc/hbmk2.en.md).
+`hbmk2` supports additional library paths, libraries, and static/shared linking, which is sufficient for linking the Rust artifact: [hbmk2 documentation](https://github.com/harbour/core/blob/master/utils/hbmk2/doc/hbmk2.en.md).
 
-### Слой 3: Harbour-friendly API
+### Layer 3: Harbour-friendly API
 
-Да не се копира Rust builder API 1:1. По-удобен Harbour interface би използвал hashes/arrays или малки Harbour classes, например концептуално:
+Do not copy the Rust builder API 1:1. A more convenient Harbour interface would use hashes/arrays or small Harbour classes, conceptually:
 
 ```text
 h := RTUI_New( { "backend" => "crossterm" } )
@@ -167,131 +167,131 @@ event := RTUI_PollEvent( h, timeout_ms )
 RTUI_Close( h )
 ```
 
-Вътрешно `BeginFrame`/`EndFrame` може да събира command list и да изпълни един Rust `Terminal::draw` closure. Не трябва да държим `&mut Frame` през отделни Harbour calls; Rust borrow не може безопасно да пресече и да остане жив през C/VM границата.
+Internally, `BeginFrame`/`EndFrame` can collect a command list and execute a single Rust `Terminal::draw` closure. We must not hold `&mut Frame` across separate Harbour calls; a Rust borrow cannot safely cross and remain alive across the C/VM boundary.
 
-## Стратегии за terminal I/O
+## Terminal I/O strategies
 
-### A. Rust-owned Crossterm backend — препоръчано за MVP
+### A. Rust-owned Crossterm backend—recommended for the MVP
 
-Rust adapter-ът притежава `Terminal<CrosstermBackend<...>>`, raw mode, alternate screen и normalized input events. Harbour подава widget commands/state.
+The Rust adapter owns `Terminal<CrosstermBackend<...>>`, raw mode, the alternate screen, and normalized input events. Harbour supplies widget commands/state.
 
-Плюсове:
+Advantages:
 
-- използва стандартния, default Ratatui path;
-- получава diff rendering и terminal lifecycle на едно място;
-- най-малко custom backend код;
-- работи на Linux, macOS и Windows според Ratatui manifest-а и Crossterm support-а.
+- uses the standard, default Ratatui path;
+- provides diff rendering and terminal lifecycle management in one place;
+- requires the least custom backend code;
+- works on Linux, macOS, and Windows according to the Ratatui manifest and Crossterm support.
 
-Минуси:
+Disadvantages:
 
-- трябва ясно да се договори кой притежава конзолата;
-- може да конфликтува със съществуващ Harbour GT driver, ако и двата пишат/четат едновременно;
-- input events трябва да се нормализират в собствен C enum/DTO, а не да се export-ват Crossterm enums.
+- console ownership must be defined clearly;
+- it may conflict with an existing Harbour GT driver if both read/write concurrently;
+- input events must be normalized into a custom C enum/DTO instead of exporting Crossterm enums.
 
-Crossterm декларира поддръжка на UNIX и Windows terminals, включително Windows 7 с някои feature ограничения; README-то описва cursor, style, raw/alternate screen и key/mouse/resize events: [Crossterm README](https://github.com/crossterm-rs/crossterm/blob/master/README.md).
+Crossterm declares support for UNIX and Windows terminals, including Windows 7 with some feature limitations. Its README describes cursor, style, raw/alternate screen, and key/mouse/resize events: [Crossterm README](https://github.com/crossterm-rs/crossterm/blob/master/README.md).
 
-### B. `Terminal<HarbourBackend>` — препоръчано за дълбока GT интеграция
+### B. `Terminal<HarbourBackend>`—recommended for deep GT integration
 
-В Rust имплементираме конкретен `HarbourBackend` с C callback table за size, draw cells, cursor, clear и flush. Adapter-ът flatten-ва iterator-а от Ratatui `Cell` в краткотраен C array и извиква callbacks.
+In Rust, we implement a concrete `HarbourBackend` with a C callback table for size, drawing cells, cursor operations, clearing, and flushing. The adapter flattens the Ratatui `Cell` iterator into a short-lived C array and calls the callbacks.
 
-Плюсове:
+Advantages:
 
-- Harbour/GT остава собственик на terminal I/O и input;
-- запазва Ratatui double-buffer diffing;
-- може да се интегрира с конкретен Harbour TrueColor/GT слой.
+- Harbour/GT remains the owner of terminal I/O and input;
+- preserves Ratatui double-buffer diffing;
+- can integrate with a specific Harbour TrueColor/GT layer.
 
-Минуси и условия:
+Disadvantages and conditions:
 
-- повече backend код и platform testing;
-- callback-ите трябва да са synchronous и по възможност на същия thread;
-- callback pointer-ите и context handle трябва да останат валидни до `close`;
-- да няма Harbour VM re-entry от чужд thread;
-- wide Unicode grapheme, continuation cells, RGB/indexed colors и modifiers трябва да имат точен DTO contract.
+- more backend code and platform testing;
+- callbacks must be synchronous and preferably run on the same thread;
+- callback pointers and the context handle must remain valid until `close`;
+- there must be no Harbour VM re-entry from a foreign thread;
+- wide Unicode graphemes, continuation cells, RGB/indexed colors, and modifiers require a precise DTO contract.
 
-`Backend` методите и non-dyn ограничението не пречат, защото конкретният `HarbourBackend` се monomorphize-ва вътре в Rust binary/library.
+The `Backend` methods and the non-dyn restriction are not obstacles because the concrete `HarbourBackend` is monomorphized inside the Rust binary/library.
 
 ### C. Off-screen `Buffer`/`TestBackend`
 
-Rust рендерира widgets към memory buffer и връща full frame или diff от C-compatible cells; Harbour ги записва чрез GT API. `TestBackend` е официално предоставен за UI testing, но production adapter може да използва собствен memory backend или директно `Buffer`, за да не зависи от test-only semantics.
+Rust renders widgets into a memory buffer and returns a full frame or diff of C-compatible cells; Harbour writes them through the GT API. `TestBackend` is officially provided for UI testing, but a production adapter can use its own memory backend or `Buffer` directly to avoid depending on test-only semantics.
 
-Плюсове:
+Advantages:
 
-- няма callbacks към Harbour;
-- отлична testability и детерминирани snapshots;
-- ясно отделя layout/widget engine от terminal I/O.
+- no callbacks into Harbour;
+- excellent testability and deterministic snapshots;
+- cleanly separates the layout/widget engine from terminal I/O.
 
-Минуси:
+Disadvantages:
 
-- Harbour слой трябва да прилага cells и cursor сам;
-- ако се връща full frame, трафикът е по-голям; по-добре е adapter-ът да поддържа предишен buffer и да връща diff;
-- трябва да се синхронизира resize.
+- the Harbour layer must apply cells and cursor operations itself;
+- returning a full frame creates more traffic; it is better for the adapter to retain the previous buffer and return a diff;
+- resize must be synchronized.
 
 ### D. IPC helper process
 
-Rust executable управлява Ratatui, а Harbour комуникира чрез pipes/socket с versioned protocol. Това елиминира in-process ABI и panic рисковете, но добавя process lifecycle, IPC latency и packaging. Подходящо е само ако C/Rust toolchain съвместимостта се окаже блокираща.
+A Rust executable manages Ratatui while Harbour communicates through pipes/a socket using a versioned protocol. This eliminates in-process ABI and panic risks, but adds process lifecycle, IPC latency, and packaging complexity. It is appropriate only if C/Rust toolchain compatibility proves to be a blocker.
 
-## Platform и build ограничения
+## Platform and build constraints
 
-- Default Crossterm конфигурацията е целена към Linux/macOS/Windows; Termion е Unix-only в manifest-а. За първа версия използваме Crossterm или Harbour-owned backend, не множество backend-и.
-- Архитектурата трябва да съвпада: x86 с x86, x64 с x64, ARM64 с ARM64.
-- На Windows Rust target/toolchain трябва да съвпада с C linker ecosystem-а на Harbour build-а (`*-pc-windows-msvc` срещу `*-pc-windows-gnu`). При несъвпадение `cdylib` обикновено изолира повече link-time детайли, но остава необходима подходяща import library или runtime loading.
-- `staticlib` вгражда Rust dependencies, но системните native libraries трябва да се подадат на крайния linker; Rust препоръчва `--print=native-static-libs` за този списък: [Rust linkage](https://doc.rust-lang.org/reference/linkage.html).
-- `cdylib` опростява Harbour executable link-а и независимото обновяване, но добавя DLL/SO/DYLIB deployment и ABI version management.
-- За binary distribution трябва CI matrix по поддържана OS/architecture/toolchain, а не компилация на машината на крайния потребител.
+- The default Crossterm configuration targets Linux/macOS/Windows; Termion is Unix-only in the manifest. For the first version, use Crossterm or a Harbour-owned backend, not multiple backends.
+- Architectures must match: x86 with x86, x64 with x64, ARM64 with ARM64.
+- On Windows, the Rust target/toolchain must match the C linker ecosystem of the Harbour build (`*-pc-windows-msvc` versus `*-pc-windows-gnu`). When they do not match, a `cdylib` usually isolates more link-time details, but a suitable import library or runtime loading is still required.
+- `staticlib` embeds Rust dependencies, but system-native libraries must be passed to the final linker; Rust recommends `--print=native-static-libs` for this list: [Rust linkage](https://doc.rust-lang.org/reference/linkage.html).
+- `cdylib` simplifies linking the Harbour executable and independent updates, but adds DLL/SO/DYLIB deployment and ABI version management.
+- Binary distribution requires a CI matrix covering each supported OS/architecture/toolchain, rather than compilation on the end user's machine.
 
-Практична препоръка: MVP с `cdylib` за по-малко linker coupling, след това и `staticlib` за toolchain-и, при които крайната връзка е доказано стабилна.
+Practical recommendation: use a `cdylib` for the MVP to reduce linker coupling, then add a `staticlib` for toolchains where final linking has proven stable.
 
-### Проверка на локалния Windows toolchain
+### Local Windows toolchain review
 
-Локалната проверка на 2026-09-01 показа:
+The local review on 2026-09-01 found:
 
-- Harbour `hbmk2` автоматично избира 64-bit Zig toolchain от `D:\accounts\hb32_64_v3`;
-- Zig 0.16.0 докладва GNU Windows target (`x86_64-windows-gnu`);
-- инсталираният Rust host/target е само `x86_64-pc-windows-msvc`.
+- Harbour `hbmk2` automatically selects the 64-bit Zig toolchain from `D:\accounts\hb32_64_v3`;
+- Zig 0.16.0 reports a GNU Windows target (`x86_64-windows-gnu`);
+- the only installed Rust host/target is `x86_64-pc-windows-msvc`.
 
-Не е необходимо Harbour да се прекомпилира с друг C compiler. Предпочитаният build е да се добави Rust target `x86_64-pc-windows-gnu` и Rust `cdylib`-ът да се произведе за него, така че Harbour C shim-ът и DLL import library да са в една ABI/linker фамилия. Ако GNU Rust target-ът създаде конкретен linker проблем, резервният вариант е MSVC Rust DLL с runtime loading (`LoadLibrary`/`GetProcAddress`), което премахва зависимостта от import-library формата. Harbour/MSVC build е последен fallback, не начално изискване.
+Harbour does not need to be rebuilt with a different C compiler. The preferred build adds the Rust target `x86_64-pc-windows-gnu` and builds the Rust `cdylib` for it, keeping the Harbour C shim and DLL import library in the same ABI/linker family. If the GNU Rust target causes a specific linker problem, the fallback is an MSVC Rust DLL loaded at runtime with `LoadLibrary`/`GetProcAddress`, removing the dependency on the import-library format. A Harbour/MSVC build is the last fallback, not the initial requirement.
 
-Независимо от toolchain избора, allocator ownership не трябва да пресича DLL границата: Rust-allocated обекти/strings се освобождават от Rust export, а Harbour-allocated памет — от Harbour.
+Regardless of the toolchain choice, allocator ownership must not cross the DLL boundary: Rust-allocated objects/strings are freed by a Rust export, and Harbour-allocated memory is freed by Harbour.
 
 ## FFI safety contract
 
-Задължителни правила:
+Mandatory rules:
 
-1. **Opaque ownership:** Harbour държи handle; само Rust създава/унищожава Rust обектите.
-2. **No unwind:** всяка exported function има panic guard; връща status code.
-3. **Strings:** входът е UTF-8 pointer + byte length; Rust го копира, ако трябва да живее след call-а. Няма NUL assumption.
-4. **Memory symmetry:** памет, заделена от Rust, се освобождава само с Rust `rtui_free_*`; още по-добре — caller-provided buffers.
-5. **Thread affinity:** session handle се използва само от thread-а, който го е създал, освен ако бъде изрично проектиран и тестван другояче.
-6. **Callbacks:** synchronous, без задържане на временни pointers след callback-а, без exception през C границата.
-7. **Terminal restore:** idempotent `close`; cleanup при частично неуспешен `open`; ясно поведение при Harbour error/quit.
-8. **Versioning:** `rtui_abi_version()`, `struct_size` и feature query. Ratatui остава скрит implementation detail.
-9. **Limits:** валидиране на координати/размери (`u16` в Ratatui), array lengths, UTF-8 и enum стойности преди Rust API call.
-10. **No borrowed frame:** никой `Frame`, `Buffer`, `Cell`, `&str` или Rust iterator не се връща директно към Harbour.
+1. **Opaque ownership:** Harbour holds a handle; only Rust creates/destroys Rust objects.
+2. **No unwind:** every exported function has a panic guard and returns a status code.
+3. **Strings:** input is a UTF-8 pointer + byte length; Rust copies it if it must outlive the call. There is no NUL assumption.
+4. **Memory symmetry:** memory allocated by Rust is freed only with Rust `rtui_free_*`; caller-provided buffers are even better.
+5. **Thread affinity:** a session handle is used only by the thread that created it unless explicitly designed and tested otherwise.
+6. **Callbacks:** synchronous, without retaining temporary pointers after the callback and without exceptions crossing the C boundary.
+7. **Terminal restore:** idempotent `close`; cleanup after a partially failed `open`; defined behavior on Harbour error/quit.
+8. **Versioning:** `rtui_abi_version()`, `struct_size`, and feature query. Ratatui remains a hidden implementation detail.
+9. **Limits:** validate coordinates/dimensions (`u16` in Ratatui), array lengths, UTF-8, and enum values before calling the Rust API.
+10. **No borrowed frame:** no `Frame`, `Buffer`, `Cell`, `&str`, or Rust iterator is returned directly to Harbour.
 
-## Предложен MVP
+## Proposed MVP
 
-Първата binding версия да покрива:
+The first binding version should cover:
 
 - session: create/open, close/restore, terminal size, clear;
-- frame: begin/end или една `render(command_list)` функция;
-- layout: horizontal/vertical constraints и `Rect`;
+- frame: begin/end or a single `render(command_list)` function;
+- layout: horizontal/vertical constraints and `Rect`;
 - style: default, named/ANSI/indexed/RGB colors, modifiers;
-- text: UTF-8 text, spans/lines, alignment, wrap;
+- text: UTF-8 text, spans/lines, alignment, wrapping;
 - widgets: `Block`, `Paragraph`, `List`, `Table`, `Tabs`, `Gauge`, `Scrollbar`;
-- state: selected row/item и scroll position като прости integers/DTO-та;
-- input: key, mouse, resize, focus/paste само ако Rust-owned Crossterm е избран;
+- state: selected row/item and scroll position as simple integers/DTOs;
+- input: key, mouse, resize, focus/paste only when Rust-owned Crossterm is selected;
 - errors: status + copied last-error text;
-- testing: off-screen rendering и golden snapshots.
+- testing: off-screen rendering and golden snapshots.
 
-Да се отложат за следваща фаза:
+Defer to a later phase:
 
-- `Canvas`, arbitrary closures и custom widget callbacks;
+- `Canvas`, arbitrary closures, and custom widget callbacks;
 - experimental `WidgetRef` APIs;
-- множество terminal backends в един build;
+- multiple terminal backends in one build;
 - generic third-party widget loading;
-- директно export-ване на serialized Ratatui internal types.
+- directly exporting serialized internal Ratatui types.
 
-Примерна ниско-нивова C ABI форма:
+Example low-level C ABI shape:
 
 ```c
 typedef struct rtui_session rtui_session;
@@ -313,56 +313,56 @@ int32_t rtui_poll_event(rtui_session *s, uint32_t timeout_ms,
 void    rtui_session_free(rtui_session *s);
 ```
 
-Точните signatures трябва да се фиксират след малък prototype; горното показва ABI формата, не окончателен interface.
+The exact signatures should be fixed after a small prototype; the example above illustrates the ABI shape, not the final interface.
 
-## Рискове и mitigations
+## Risks and mitigations
 
-| Риск | Ефект | Mitigation |
+| Risk | Effect | Mitigation |
 |---|---|---|
-| Ratatui breaking changes | чести промени във wrapper implementation | pin точна версия; нашият C ABI е независим; upgrade tests |
-| Две Crossterm версии в community fork | разделени event queues/raw-mode state | pin Crossterm 0.29; `cargo tree` CI assertion; един terminal owner |
-| Rust/Harbour linker несъвместимост | build failure, особено Windows | CI по toolchain; `cdylib` MVP; отделни GNU/MSVC artifacts |
-| Двама собственици на terminal state | повреден raw mode/alternate screen/input | един session owner; изричен open/close contract |
-| Panic през FFI | abort/undefined behavior според ABI сценария | `catch_unwind`, status codes, panic-free boundary |
-| Unicode/codepage разлика | счупени glyphs/width | UTF-8 ABI; conversion само в Harbour edge; tests с wide/combining graphemes |
-| Callback lifetime/threading | use-after-free или VM corruption | opaque context, same-thread synchronous callbacks, unregister-before-free |
-| 1:1 API explosion | неподлежаща на поддръжка binding surface | curated Harbour API и command DTO-та |
-| Transitive dependency licenses | packaging compliance | license inventory при release; пазене на notices |
+| Ratatui breaking changes | frequent changes to the wrapper implementation | pin an exact version; keep our C ABI independent; upgrade tests |
+| Two Crossterm versions in the community fork | separate event queues/raw-mode state | pin Crossterm 0.29; `cargo tree` CI assertion; one terminal owner |
+| Rust/Harbour linker incompatibility | build failure, especially on Windows | CI per toolchain; `cdylib` MVP; separate GNU/MSVC artifacts |
+| Two owners of terminal state | corrupted raw mode/alternate screen/input | one session owner; explicit open/close contract |
+| Panic across FFI | abort/undefined behavior depending on the ABI scenario | `catch_unwind`, status codes, panic-free boundary |
+| Unicode/code-page mismatch | broken glyphs/width | UTF-8 ABI; conversion only at the Harbour edge; tests with wide/combining graphemes |
+| Callback lifetime/threading | use-after-free or VM corruption | opaque context, same-thread synchronous callbacks, unregister-before-free |
+| 1:1 API explosion | unmaintainable binding surface | curated Harbour API and command DTOs |
+| Transitive dependency licenses | packaging compliance | license inventory at release time; preserve notices |
 
-## Лиценз
+## License
 
-Ratatui е под MIT лиценз. Той разрешава use, copy, modify, distribute, sublicense и sale, при условие че copyright и permission notice се запазят в copies/substantial portions: [официален LICENSE](https://github.com/ratatui/ratatui/blob/main/LICENSE).
+Ratatui is licensed under the MIT License. It permits use, copying, modification, distribution, sublicensing, and sale, provided that the copyright and permission notice are retained in copies/substantial portions: [official LICENSE](https://github.com/ratatui/ratatui/blob/main/LICENSE).
 
-Това е съвместимо с proprietary или open-source Harbour приложение. Все пак binary release трябва да включва Ratatui MIT notice и да има автоматизиран license audit за всички transitive Cargo dependencies; Ratatui лицензът сам по себе си не удостоверява лицензите на цялото dependency дърво.
+This is compatible with a proprietary or open-source Harbour application. A binary release should nevertheless include the Ratatui MIT notice and an automated license audit for all transitive Cargo dependencies; the Ratatui license alone does not attest to the licenses of the entire dependency tree.
 
-## Решение и следваща проверка
+## Decision and next validation
 
-**Go за prototype.** Няма архитектурен или лицензионен blocker, а `ratatui-ffi` вече доказва C ABI подхода и предлага голяма част от желаната surface area. Основният избор е дали да fork-нем него или да използваме по-малък adapter, както и ownership на terminal I/O:
+**Go for a prototype.** There is no architectural or licensing blocker, and `ratatui-ffi` already validates the C ABI approach and provides much of the desired surface area. The main choices are whether to fork it or use a smaller adapter, and who owns terminal I/O:
 
-- ако целта е бързо standalone Harbour TUI: Rust-owned Crossterm;
-- ако целта е интеграция със съществуващ Harbour GT/TrueColor stack: `HarbourBackend` callbacks или off-screen buffer.
+- for a quick standalone Harbour TUI: Rust-owned Crossterm;
+- for integration with an existing Harbour GT/TrueColor stack: `HarbourBackend` callbacks or an off-screen buffer.
 
-Препоръчан технически spike:
+Recommended technical spike:
 
-1. кратък security/API audit на `ratatui-ffi`, следван от fork или thin wrapper, pin-нат към конкретен commit, `ratatui = "=0.30.2"` и единствен `crossterm = "0.29"`;
-2. `cdylib` + C header с 8–12 exported functions;
-3. Harbour demo с `Block` + `Paragraph`, RGB style, Unicode, resize и clean restore;
-4. off-screen test, който проверява точните cells;
-5. Windows x64 и Linux x64 build; проверка на Harbour compiler/linker варианта преди static linking;
-6. след spike-а — избор между command-list API и конкретни widget functions.
+1. a short security/API audit of `ratatui-ffi`, followed by a fork or thin wrapper pinned to a specific commit, `ratatui = "=0.30.2"`, and a single `crossterm = "0.29"`;
+2. a `cdylib` + C header with 8–12 exported functions;
+3. a Harbour demo with `Block` + `Paragraph`, RGB style, Unicode, resize, and clean restoration;
+4. an off-screen test that checks the exact cells;
+5. Windows x64 and Linux x64 builds; verify the Harbour compiler/linker variant before static linking;
+6. after the spike, choose between a command-list API and specific widget functions.
 
-Acceptance criteria за spike-а:
+Acceptance criteria for the spike:
 
-- terminal-ът се възстановява след нормално излизане и обработима грешка;
-- 1 000 frame цикъла без leak/use-after-free според sanitizers/Valgrind еквивалент;
-- UTF-8, RGB/indexed colors и wide glyph test минават;
-- resize не поврежда buffer/state;
-- C ABI header остава без Rust-specific типове;
-- същият Harbour-facing API работи с поне един Windows и един Unix artifact.
+- the terminal is restored after normal exit and a recoverable error;
+- 1,000 frame cycles without leaks/use-after-free according to sanitizers or a Valgrind equivalent;
+- UTF-8, RGB/indexed colors, and wide-glyph tests pass;
+- resize does not corrupt the buffer/state;
+- the C ABI header contains no Rust-specific types;
+- the same Harbour-facing API works with at least one Windows and one Unix artifact.
 
-## Първични източници
+## Primary sources
 
-- Ratatui repository и README: <https://github.com/ratatui/ratatui>
+- Ratatui repository and README: <https://github.com/ratatui/ratatui>
 - Ratatui architecture: <https://github.com/ratatui/ratatui/blob/main/ARCHITECTURE.md>
 - Ratatui 0.30.2 `Terminal`: <https://docs.rs/ratatui/0.30.2/ratatui/struct.Terminal.html>
 - Ratatui 0.30.2 `Buffer`/`Cell`: <https://docs.rs/ratatui/0.30.2/ratatui/buffer/struct.Buffer.html>, <https://docs.rs/ratatui/0.30.2/ratatui/buffer/struct.Cell.html>
